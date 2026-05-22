@@ -1,0 +1,966 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Coding Agent War Room</title>
+<style>
+:root {
+  --bg: #0a0e17;
+  --surface: #111827;
+  --border: #1e293b;
+  --text: #e2e8f0;
+  --text-dim: #64748b;
+  --accent: #38bdf8;
+  --accent2: #818cf8;
+  --accent3: #f472b6;
+  --success: #34d399;
+  --warning: #fbbf24;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'JetBrains Mono', 'Fira Code', 'SF Mono', monospace;
+  overflow: hidden;
+  height: 100vh;
+}
+
+.war-room {
+  display: grid;
+  grid-template-columns: 1fr 320px;
+  grid-template-rows: 48px 1fr 180px;
+  height: 100vh;
+  gap: 1px;
+  background: var(--border);
+}
+
+.header {
+  grid-column: 1 / -1;
+  background: var(--surface);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 16px;
+  font-size: 12px;
+}
+
+.header-left { display: flex; align-items: center; gap: 12px; }
+.header-title {
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  background: linear-gradient(135deg, var(--accent), var(--accent2));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.mode-tabs { display: flex; gap: 2px; }
+.mode-tab {
+  padding: 6px 14px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-dim);
+  font-family: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.mode-tab:hover { color: var(--text); }
+.mode-tab.active {
+  background: rgba(56, 189, 248, 0.1);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.stats-bar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  font-size: 11px;
+}
+.stat { display: flex; align-items: center; gap: 4px; }
+.stat-dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  display: inline-block;
+}
+.stat-dot.green { background: var(--success); box-shadow: 0 0 6px var(--success); }
+.stat-dot.yellow { background: var(--warning); box-shadow: 0 0 6px var(--warning); }
+.stat-dot.blue { background: var(--accent); box-shadow: 0 0 6px var(--accent); }
+
+.main-area {
+  background: var(--bg);
+  position: relative;
+  overflow: hidden;
+}
+
+#mainCanvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.sidebar {
+  background: var(--surface);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.agent-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px;
+}
+
+.agent-card {
+  background: rgba(255,255,255,0.03);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px;
+  margin-bottom: 6px;
+  font-size: 10px;
+  transition: all 0.3s;
+}
+.agent-card.active { border-color: var(--accent); background: rgba(56,189,248,0.05); }
+.agent-card-id { color: var(--text-dim); font-size: 9px; margin-bottom: 4px; }
+.agent-card-name { font-weight: 600; margin-bottom: 2px; }
+.agent-card-task { color: var(--accent2); font-size: 10px; }
+.agent-card-status {
+  display: flex; align-items: center; gap: 4px;
+  margin-top: 4px; font-size: 9px;
+}
+.progress-bar {
+  flex: 1; height: 3px; background: var(--border);
+  border-radius: 2px; overflow: hidden;
+}
+.progress-fill {
+  height: 100%; border-radius: 2px;
+  transition: width 0.5s ease;
+}
+
+.log-panel {
+  grid-column: 1 / -1;
+  background: var(--surface);
+  display: flex;
+  flex-direction: column;
+}
+
+.log-header {
+  padding: 8px 12px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--text-dim);
+  border-bottom: 1px solid var(--border);
+  display: flex; justify-content: space-between; align-items: center;
+}
+.log-clear {
+  background: none; border: none; color: var(--text-dim);
+  cursor: pointer; font-size: 10px; font-family: inherit;
+}
+.log-clear:hover { color: var(--text); }
+
+.log-entries {
+  flex: 1;
+  overflow-y: auto;
+  padding: 4px 12px;
+  font-size: 10px;
+  line-height: 1.6;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+
+.log-entry {
+  padding: 2px 0;
+  border-bottom: 1px solid rgba(255,255,255,0.02);
+  animation: fadeIn 0.3s ease;
+}
+@keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; } }
+
+.log-time { color: var(--text-dim); }
+.log-agent { font-weight: 600; }
+.log-action { color: var(--accent); }
+.log-result { color: var(--success); }
+.log-warn { color: var(--warning); }
+
+.controls {
+  position: absolute;
+  bottom: 12px; left: 12px;
+  display: flex; gap: 8px; z-index: 10;
+}
+.ctrl-btn {
+  width: 36px; height: 36px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: rgba(17,24,39,0.9);
+  color: var(--text-dim);
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 16px;
+  backdrop-filter: blur(8px);
+  transition: all 0.2s;
+}
+.ctrl-btn:hover { border-color: var(--accent); color: var(--accent); }
+.ctrl-btn.active { border-color: var(--accent); color: var(--accent); }
+
+.overlay-panel {
+  position: absolute;
+  top: 12px; right: 12px;
+  background: rgba(17,24,39,0.95);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 16px;
+  z-index: 10;
+  backdrop-filter: blur(8px);
+  min-width: 200px;
+}
+.overlay-title {
+  font-size: 11px; font-weight: 600;
+  margin-bottom: 12px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.overlay-row {
+  display: flex; justify-content: space-between;
+  font-size: 11px; margin-bottom: 6px;
+}
+.overlay-label { color: var(--text-dim); }
+.overlay-value { font-weight: 600; }
+.overlay-value.highlight { color: var(--accent); }
+
+.speed-control {
+  position: absolute;
+  bottom: 12px; right: 340px;
+  display: flex; align-items: center; gap: 8px;
+  background: rgba(17,24,39,0.9);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 12px;
+  z-index: 10;
+  backdrop-filter: blur(8px);
+}
+.speed-label { font-size: 10px; color: var(--text-dim); }
+.speed-slider {
+  width: 80px; accent-color: var(--accent);
+  cursor: pointer;
+}
+.speed-val { font-size: 10px; color: var(--accent); font-weight: 600; }
+
+.agent-count-control {
+  position: absolute;
+  bottom: 12px; right: 340px;
+  display: flex; align-items: center; gap: 8px;
+  background: rgba(17,24,39,0.9);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 12px;
+  z-index: 10;
+  backdrop-filter: blur(8px);
+}
+.agt-label { font-size: 10px; color: var(--text-dim); }
+.agt-btn {
+  width: 22px; height: 22px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  font-size: 14px;
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 700;
+  transition: all 0.15s;
+}
+.agt-btn:hover { border-color: var(--accent); color: var(--accent); }
+.agt-count { font-size: 12px; color: var(--accent); font-weight: 600; min-width: 20px; text-align: center; }
+
+</style>
+</head>
+<body>
+<div class="war-room">
+  <div class="header">
+    <div class="header-left">
+      <span class="header-title">AI CODING AGENT WAR ROOM</span>
+      <div class="mode-tabs">
+        <button class="mode-tab active" data-mode="map">MAP</button>
+        <button class="mode-tab" data-mode="agents">AGENTS</button>
+        <button class="mode-tab" data-mode="logs">LOGS</button>
+      </div>
+    </div>
+    <div class="stats-bar">
+      <div class="stat"><span class="stat-dot green"></span> <span id="activeAgents">0</span> active</div>
+      <div class="stat"><span class="stat-dot yellow"></span> <span id="completedTasks">0</span> completed</div>
+      <div class="stat"><span class="stat-dot blue"></span> <span id="wpm">0</span> wpm</div>
+      <div class="stat">UPTIME <span id="uptime" style="color:var(--accent);font-weight:600">00:00:00</span></div>
+    </div>
+  </div>
+
+  <div class="main-area">
+    <canvas id="mainCanvas"></canvas>
+    <div class="controls">
+      <button class="ctrl-btn" id="btnPlay" title="Play/Pause">▶</button>
+      <button class="ctrl-btn" id="btnReset" title="Reset">↺</button>
+    </div>
+    <div class="agent-count-control">
+      <span class="agt-label">AGENTS</span>
+      <button class="agt-btn" id="agtMinus">−</button>
+      <span class="agt-count" id="agentCountDisplay">5</span>
+      <button class="agt-btn" id="agtPlus">+</button>
+    </div>
+    <div class="overlay-panel" id="overlayPanel">
+      <div class="overlay-title">MISSION BRIEF</div>
+      <div class="overlay-row">
+        <span class="overlay-label">Codebase</span>
+        <span class="overlay-value" id="cbSize">2,847 files</span>
+      </div>
+      <div class="overlay-row">
+        <span class="overlay-label">Modules</span>
+        <span class="overlay-value" id="cbModules">12 layers</span>
+      </div>
+      <div class="overlay-row">
+        <span class="overlay-label">Agents Deployed</span>
+        <span class="overlay-value highlight" id="agentsDeployed">5</span>
+      </div>
+      <div class="overlay-row">
+        <span class="overlay-label">Lines Modified</span>
+        <span class="overlay-value highlight" id="linesModified">0</span>
+      </div>
+      <div class="overlay-row">
+        <span class="overlay-label">Bugs Found</span>
+        <span class="overlay-value highlight" id="bugsFound">0</span>
+      </div>
+      <div class="overlay-row">
+        <span class="overlay-label">Efficiency</span>
+        <span class="overlay-value highlight" id="efficiency">100%</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="sidebar">
+    <div class="log-header">
+      <span>AGENT ROSTER</span>
+      <span style="font-size:9px;color:var(--text-dim)">LIVE</span>
+    </div>
+    <div class="agent-list" id="agentList"></div>
+  </div>
+
+  <div class="log-panel">
+    <div class="log-header">
+      <span>ACTIVITY LOG</span>
+      <button class="log-clear" id="logClear">CLEAR</button>
+    </div>
+    <div class="log-entries" id="logEntries"></div>
+  </div>
+</div>
+
+<script>
+// ============ CONFIG ============
+const CONFIG = {
+  nodeCount: 60,
+  edgeCount: 40,
+  agentCount: 5,
+  baseSpeed: 1.0,
+  nodeRadius: 8,
+  edgeWidth: 1,
+};
+
+// ============ SEEDED PRNG ============
+class PRNG {
+  constructor(seed) { this.seed = seed; }
+  next() {
+    this.seed = (this.seed * 16807 + 0) % 2147483647;
+    return (this.seed - 1) / 2147483646;
+  }
+  range(min, max) { return min + this.next() * (max - min); }
+  choice(arr) { return arr[Math.floor(this.next() * arr.length)]; }
+}
+
+const rng = new PRNG(Date.now() % 100000);
+
+// ============ NODES (Codebase Files/Modules) ============
+const nodeTypes = ['file', 'module', 'function', 'class', 'config', 'test'];
+const nodeColors = {
+  file: '#94a3b8',
+  module: '#38bdf8',
+  function: '#818cf8',
+  class: '#f472b6',
+  config: '#fbbf24',
+  test: '#34d399',
+};
+
+const nodeNames = [
+  'auth.js', 'api.ts', 'db.py', 'main.go', 'router.rs', 'config.yaml',
+  'utils.cpp', 'model.pt', 'server.rb', 'client.java', 'index.php', 'app.vue',
+  'style.css', 'data.json', 'schema.sql', 'Makefile', 'Dockerfile', 'README.md',
+  'pipeline.sh', 'test_main.py', 'deploy.sh', 'webpack.config.js', '.env',
+  'package.json', 'requirements.txt', 'tsconfig.json', '.gitignore', 'Cargo.toml',
+  'go.mod', 'build.gradle', 'pom.xml', 'setup.py', 'pyproject.toml',
+  'middleware.py', 'routes.go', 'controllers.rb', 'services.java', 'handlers.js',
+  'parser.rs', 'compiler.cpp', 'trainer.pt', 'inference.py', 'deploy.rb',
+  'client.java', 'server.go', 'api.ts', 'router.rs', 'schema.sql',
+  'pipeline.sh', 'deploy.sh', 'nginx.conf', 'k8s.yaml', 'grafana.json',
+  'prometheus.yml', 'docker-compose.yml', 'terraform.tf', 'ansible.yml', 'jenkinsfile',
+  'ci.yml', 'lint.py', 'format.js', 'build.rs', 'test_auth.py',
+  'mock_server.py', 'fixture.js', 'coverage.sh', 'bench.py', 'profiler.go',
+];
+
+const nodes = [];
+for (let i = 0; i < CONFIG.nodeCount; i++) {
+  const type = nodeTypes[i % nodeTypes.length];
+  nodes.push({
+    id: i,
+    name: nodeNames[i % nodeNames.length],
+    type: type,
+    x: rng.range(60, window.innerWidth - 60),
+    y: rng.range(60, window.innerHeight - 220),
+    vx: 0, vy: 0,
+    size: type === 'file' ? 4 : type === 'module' ? 10 : 6,
+    pulse: 0,
+    color: nodeColors[type],
+    visited: false,
+    visitCount: 0,
+  });
+}
+
+// Create edges between nearby nodes
+const edges = [];
+for (let i = 0; i < CONFIG.edgeCount; i++) {
+  const a = Math.floor(rng.next() * nodes.length);
+  let b = Math.floor(rng.next() * nodes.length);
+  while (b === a) b = Math.floor(rng.next() * nodes.length);
+  edges.push({ from: a, to: b, active: false, pulse: 0 });
+}
+
+// ============ AGENTS ============
+const agentNames = [
+  'Athena', 'Atlas', 'Blade', 'Cipher', 'Drake',
+  'Echo', 'Flux', 'Ghost', 'Halo', 'Iris',
+  'Jinx', 'Kai', 'Luna', 'Mira', 'Nova',
+];
+const agentTasks = [
+  'Refactoring auth module...',
+  'Optimizing database queries...',
+  'Writing test coverage...',
+  'Debugging API endpoint...',
+  'Updating CI/CD pipeline...',
+  'Migrating schema v3...',
+  'Implementing rate limiter...',
+  'Adding observability...',
+  'Code review pass #2...',
+  'Performance profiling...',
+];
+
+const agents = [];
+let completedTasks = 0;
+let linesModified = 0;
+let bugsFound = 0;
+let totalWords = 0;
+let startTime = Date.now();
+
+function createAgent(index) {
+  const targetNode = nodes[Math.floor(rng.next() * nodes.length)];
+  return {
+    id: index,
+    name: agentNames[index % agentNames.length],
+    color: ['#38bdf8', '#818cf8', '#f472b6', '#34d399', '#fbbf24', '#fb923c', '#a78bfa', '#f87171'][index % 8],
+    x: targetNode.x,
+    y: targetNode.y,
+    targetX: targetNode.x,
+    targetY: targetNode.y,
+    task: agentTasks[Math.floor(rng.next() * agentTasks.length)],
+    taskProgress: 0,
+    speed: 0.5 + rng.next() * 1.5,
+    trail: [],
+    state: 'thinking', // thinking, working, moving, reviewing
+    particles: [],
+  };
+}
+
+for (let i = 0; i < CONFIG.agentCount; i++) {
+  agents.push(createAgent(i));
+}
+
+// ============ PARTICLES ============
+const particles = [];
+
+function spawnParticle(x, y, color, type) {
+  const p = {
+    x, y, color, type,
+    vx: (Math.random() - 0.5) * 2,
+    vy: (Math.random() - 0.5) * 2,
+    life: 1.0,
+    maxLife: 0.5 + Math.random() * 1,
+    size: 1 + Math.random() * 2,
+  };
+  particles.push(p);
+}
+
+// ============ CANVAS SETUP ============
+const canvas = document.getElementById('mainCanvas');
+const ctx = canvas.getContext('2d');
+let W, H;
+
+function resize() {
+  const rect = canvas.parentElement.getBoundingClientRect();
+  W = canvas.width = rect.width * devicePixelRatio;
+  H = canvas.height = (rect.height - 48) * devicePixelRatio;
+  canvas.style.width = rect.width + 'px';
+  canvas.style.height = (rect.height - 48) + 'px';
+  ctx.scale(devicePixelRatio, devicePixelRatio);
+  W /= devicePixelRatio;
+  H /= devicePixelRatio;
+}
+
+resize();
+window.addEventListener('resize', resize);
+
+// ============ LOGGING ============
+const logEntries = [];
+const logColors = {
+  info: '#38bdf8',
+  success: '#34d399',
+  warn: '#fbbf24',
+  action: '#818cf8',
+  result: '#f472b6',
+};
+
+function addLog(agentName, action, type) {
+  const now = new Date();
+  const time = now.toTimeString().slice(0, 8);
+  logEntries.unshift({ time, agent: agentName, action, type });
+  if (logEntries.length > 200) logEntries.pop();
+  renderLogs();
+}
+
+function renderLogs() {
+  const container = document.getElementById('logEntries');
+  const html = logEntries.slice(0, 50).map(l =>
+    `<div class="log-entry">
+      <span class="log-time">${l.time}</span>
+      <span class="log-agent" style="color:${logColors[l.type] || logColors.info}">[${l.agent}]</span>
+      <span>${l.action}</span>
+    </div>`
+  ).join('');
+  container.innerHTML = html;
+}
+
+// ============ RENDERING ============
+let currentMode = 'map';
+let time = 0;
+let isPaused = false;
+let scanLineY = 0;
+
+function drawGrid() {
+  ctx.strokeStyle = 'rgba(255,255,255,0.02)';
+  ctx.lineWidth = 0.5;
+  const gridSize = 40;
+  for (let x = 0; x < W; x += gridSize) {
+    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke();
+  }
+  for (let y = 0; y < H; y += gridSize) {
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+  }
+}
+
+function drawNodes() {
+  nodes.forEach(node => {
+    // Pulse effect on visited nodes
+    if (node.pulse > 0) {
+      const pulseRadius = node.size + (1 - node.pulse) * 20;
+      ctx.beginPath();
+      ctx.arc(node.x, node.y, pulseRadius, 0, Math.PI * 2);
+      ctx.strokeStyle = node.color + Math.floor(node.pulse * 40).toString(16).padStart(2, '0');
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      node.pulse -= 0.02;
+    }
+
+    // Node glow
+    const gradient = ctx.createRadialGradient(node.x, node.y, 0, node.x, node.y, node.size * 2);
+    gradient.addColorStop(0, node.color + '40');
+    gradient.addColorStop(1, 'transparent');
+    ctx.fillStyle = gradient;
+    ctx.beginPath();
+    ctx.arc(node.x, node.y, node.size * 2, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Core node
+    ctx.beginPath();
+    ctx.arc(node.x, node.y, node.size, 0, Math.PI * 2);
+    ctx.fillStyle = node.color;
+    ctx.fill();
+
+    // Type indicator ring
+    ctx.beginPath();
+    ctx.arc(node.x, node.y, node.size + 2, 0, Math.PI * 2);
+    ctx.strokeStyle = node.color + '60';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  });
+}
+
+function drawEdges() {
+  edges.forEach(edge => {
+    const from = nodes[edge.from];
+    const to = nodes[edge.to];
+    const dx = to.x - from.x;
+    const dy = to.y - from.y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+
+    // Check if any agent is near this edge
+    let active = false;
+    agents.forEach(agent => {
+      const ax = from.x + (to.x - from.x) * agent.taskProgress;
+      const ay = from.y + (to.y - from.y) * agent.taskProgress;
+      const adx = agent.x - ax;
+      const ady = agent.y - ay;
+      if (Math.sqrt(adx * adx + ady * ady) < 30) active = true;
+    });
+
+    ctx.beginPath();
+    ctx.moveTo(from.x, from.y);
+    ctx.lineTo(to.x, to.y);
+    ctx.strokeStyle = active ? 'rgba(56,189,248,0.3)' : 'rgba(255,255,255,0.06)';
+    ctx.lineWidth = active ? 2 : CONFIG.edgeWidth;
+    ctx.stroke();
+
+    // Data flow particles on active edges
+    if (active) {
+      edge.pulse = (edge.pulse || 0) + 0.02;
+      const particleT = (edge.pulse % 1);
+      const px = from.x + dx * particleT;
+      const py = from.y + dy * particleT;
+      ctx.beginPath();
+      ctx.arc(px, py, 2, 0, Math.PI * 2);
+      ctx.fillStyle = '#38bdf8';
+      ctx.fill();
+    }
+  });
+}
+
+function drawAgents() {
+  agents.forEach(agent => {
+    // Trail
+    if (agent.trail.length > 1) {
+      ctx.beginPath();
+      ctx.moveTo(agent.trail[0].x, agent.trail[0].y);
+      for (let i = 1; i < agent.trail.length; i++) {
+        ctx.lineTo(agent.trail[i].x, agent.trail[i].y);
+      }
+      ctx.strokeStyle = agent.color + '30';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    }
+
+    // Agent glow
+    const glow = ctx.createRadialGradient(agent.x, agent.y, 0, agent.x, agent.y, 20);
+    glow.addColorStop(0, agent.color + '60');
+    glow.addColorStop(1, 'transparent');
+    ctx.fillStyle = glow;
+    ctx.beginPath();
+    ctx.arc(agent.x, agent.y, 20, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Agent core
+    ctx.beginPath();
+    ctx.arc(agent.x, agent.y, 6, 0, Math.PI * 2);
+    ctx.fillStyle = agent.color;
+    ctx.fill();
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    // Agent label
+    ctx.fillStyle = agent.color;
+    ctx.font = '9px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(agent.name, agent.x, agent.y - 12);
+
+    // State indicator
+    const stateIcons = { thinking: '◉', working: '⚡', moving: '→', reviewing: '☑' };
+    ctx.fillStyle = 'rgba(255,255,255,0.5)';
+    ctx.font = '10px sans-serif';
+    ctx.fillText(stateIcons[agent.state] || '●', agent.x + 10, agent.y - 10);
+
+    // Task progress ring
+    ctx.beginPath();
+    ctx.arc(agent.x, agent.y, 10, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * agent.taskProgress);
+    ctx.strokeStyle = agent.color + '80';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  });
+}
+
+function drawParticles() {
+  for (let i = particles.length - 1; i >= 0; i--) {
+    const p = particles[i];
+    p.x += p.vx;
+    p.y += p.vy;
+    p.life -= 0.02;
+
+    if (p.life <= 0) {
+      particles.splice(i, 1);
+      continue;
+    }
+
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.size * p.life, 0, Math.PI * 2);
+    ctx.fillStyle = p.color + Math.floor(p.life * 255).toString(16).padStart(2, '0');
+    ctx.fill();
+  }
+}
+
+function drawScanLine() {
+  scanLineY = (scanLineY + 0.5) % H;
+  const grad = ctx.createLinearGradient(0, scanLineY - 20, 0, scanLineY + 20);
+  grad.addColorStop(0, 'transparent');
+  grad.addColorStop(0.5, 'rgba(56,189,248,0.03)');
+  grad.addColorStop(1, 'transparent');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, scanLineY - 20, W, 40);
+}
+
+function drawAmbientParticles() {
+  // Subtle floating data points
+  for (let i = 0; i < 30; i++) {
+    const t = time * 0.001 + i * 7.3;
+    const x = (Math.sin(t * 0.3 + i) * 0.5 + 0.5) * W;
+    const y = (Math.cos(t * 0.2 + i * 2) * 0.5 + 0.5) * H;
+    const alpha = Math.sin(t) * 0.02 + 0.02;
+    ctx.beginPath();
+    ctx.arc(x, y, 1, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(56,189,248,${alpha})`;
+    ctx.fill();
+  }
+}
+
+// ============ AGENT UPDATE ============
+function updateAgents() {
+  const speed = CONFIG.baseSpeed;
+
+  agents.forEach(agent => {
+    // Move towards target
+    const dx = agent.targetX - agent.x;
+    const dy = agent.targetY - agent.y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+
+    if (dist > 5) {
+      agent.x += (dx / dist) * agent.speed * speed * 2;
+      agent.y += (dy / dist) * agent.speed * speed * 2;
+      agent.state = 'moving';
+
+      // Add trail point
+      agent.trail.push({ x: agent.x, y: agent.y });
+      if (agent.trail.length > 30) agent.trail.shift();
+    } else {
+      // Arrived at target node
+      agent.state = agent.taskProgress < 0.5 ? 'working' : 'reviewing';
+      agent.taskProgress += 0.005 * speed;
+
+      // Spawn work particles
+      if (Math.random() < 0.3) {
+        spawnParticle(agent.x, agent.y, agent.color, 'work');
+      }
+
+      // Randomly visit nodes
+      if (agent.taskProgress > 0.8 || Math.random() < 0.005) {
+        const target = nodes[Math.floor(rng.next() * nodes.length)];
+        agent.x = target.x;
+        agent.y = target.y;
+        agent.targetX = target.x;
+        agent.targetY = target.y;
+        agent.task = agentTasks[Math.floor(rng.next() * agentTasks.length)];
+        agent.taskProgress = 0;
+        agent.state = 'thinking';
+
+        // Visit node effect
+        target.pulse = 1.0;
+        target.visitCount++;
+        totalWords += Math.floor(rng.range(10, 100));
+        linesModified += Math.floor(rng.range(1, 20));
+
+        if (Math.random() < 0.1) {
+          bugsFound += Math.floor(rng.range(1, 5));
+          addLog(agent.name, `Found ${Math.floor(rng.range(1, 5))} bugs in ${target.name}`, 'warn');
+        } else {
+          addLog(agent.name, `Modified ${Math.floor(rng.range(1, 15))} lines in ${target.name}`, 'result');
+        }
+
+        // Update sidebar
+        updateAgentCards();
+      }
+    }
+  });
+}
+
+// ============ SIDEBAR ============
+function updateAgentCards() {
+  const list = document.getElementById('agentList');
+  const html = agents.map(agent => `
+    <div class="agent-card ${agent.state !== 'moving' ? 'active' : ''}">
+      <div class="agent-card-id">AGT-${String(agent.id).padStart(3, '0')}</div>
+      <div class="agent-card-name" style="color:${agent.color}">${agent.name}</div>
+      <div class="agent-card-task">${agent.task}</div>
+      <div class="agent-card-status">
+        <span>${agent.state === 'thinking' ? '🧠' : agent.state === 'working' ? '⚡' : agent.state === 'moving' ? '🔄' : '✅'}</span>
+        <div class="progress-bar">
+          <div class="progress-fill" style="width:${agent.taskProgress * 100}%;background:${agent.color}"></div>
+        </div>
+        <span style="min-width:30px;text-align:right">${Math.floor(agent.taskProgress * 100)}%</span>
+      </div>
+    </div>
+  `).join('');
+  list.innerHTML = html;
+}
+
+// ============ STATS UPDATE ============
+function updateStats() {
+  document.getElementById('activeAgents').textContent = agents.filter(a => a.state !== 'moving').length;
+  document.getElementById('completedTasks').textContent = completedTasks;
+  document.getElementById('wpm').textContent = Math.floor(totalWords / Math.max(1, (Date.now() - startTime) / 60000));
+  document.getElementById('linesModified').textContent = linesModified.toLocaleString();
+  document.getElementById('bugsFound').textContent = bugsFound.toLocaleString();
+  document.getElementById('efficiency').textContent = Math.min(100, 85 + Math.floor(Math.sin(time * 0.0001) * 10 + 5)) + '%';
+
+  const elapsed = Math.floor((Date.now() - startTime) / 1000);
+  const h = String(Math.floor(elapsed / 3600)).padStart(2, '0');
+  const m = String(Math.floor((elapsed % 3600) / 60)).padStart(2, '0');
+  const s = String(elapsed % 60).padStart(2, '0');
+  document.getElementById('uptime').textContent = `${h}:${m}:${s}`;
+}
+
+// ============ MAIN LOOP ============
+function frame() {
+  time++;
+  ctx.clearRect(0, 0, W, H);
+
+  drawAmbientParticles();
+  drawGrid();
+  drawScanLine();
+  drawEdges();
+  drawNodes();
+  drawAgents();
+  drawParticles();
+
+  if (!isPaused) {
+    updateAgents();
+  }
+
+  if (time % 30 === 0) {
+    updateAgentCards();
+    updateStats();
+  }
+
+  requestAnimationFrame(frame);
+}
+
+// ============ CONTROLS ============
+document.getElementById('btnPlay').addEventListener('click', () => {
+  isPaused = !isPaused;
+  document.getElementById('btnPlay').textContent = isPaused ? '▶' : '⏸';
+  document.getElementById('btnPlay').classList.toggle('active', isPaused);
+});
+
+document.getElementById('btnReset').addEventListener('click', () => {
+  agents.forEach(agent => {
+    const target = nodes[Math.floor(rng.next() * nodes.length)];
+    agent.x = target.x;
+    agent.y = target.y;
+    agent.targetX = target.x;
+    agent.targetY = target.y;
+    agent.taskProgress = 0;
+    agent.trail = [];
+    agent.state = 'thinking';
+  });
+  logEntries.length = 0;
+  renderLogs();
+  completedTasks = 0;
+  linesModified = 0;
+  bugsFound = 0;
+  totalWords = 0;
+  startTime = Date.now();
+});
+
+document.getElementById('logClear').addEventListener('click', () => {
+  logEntries.length = 0;
+  renderLogs();
+});
+
+document.getElementById('agtPlus').addEventListener('click', () => {
+  if (agents.length < 15) {
+    const newAgent = createAgent(agents.length);
+    agents.push(newAgent);
+    updateAgentCards();
+    updateStats();
+  }
+});
+
+document.getElementById('agtMinus').addEventListener('click', () => {
+  if (agents.length > 1) {
+    agents.pop();
+    updateAgentCards();
+    updateStats();
+  }
+});
+
+// Mode tabs
+document.querySelectorAll('.mode-tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.mode-tab').forEach(t => t.classList.remove('active'));
+    tab.classList.add('active');
+    currentMode = tab.dataset.mode;
+  });
+});
+
+// Touch support
+canvas.addEventListener('touchstart', (e) => {
+  const touch = e.touches[0];
+  const rect = canvas.getBoundingClientRect();
+  const x = touch.clientX - rect.left;
+  const y = touch.clientY - rect.top;
+
+  // Find nearest node and spawn particles
+  let nearest = null;
+  let minDist = Infinity;
+  nodes.forEach(node => {
+    const dx = node.x - x;
+    const dy = node.y - y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    if (dist < minDist) { minDist = dist; nearest = node; }
+  });
+
+  if (nearest) {
+    nearest.pulse = 1.0;
+    for (let i = 0; i < 8; i++) {
+      spawnParticle(nearest.x, nearest.y, nearest.color, 'click');
+    }
+  }
+});
+
+// ============ INIT ============
+addLog('SYSTEM', 'War Room initialized', 'info');
+addLog('SYSTEM', `${agents.length} agents deployed to codebase`, 'info');
+addLog('SYSTEM', 'Scanning repository structure...', 'action');
+
+setTimeout(() => {
+  addLog('SYSTEM', 'Repository scan complete: 2,847 files, 12 modules', 'success');
+}, 1000);
+
+setTimeout(() => {
+  addLog('Athena', 'Assigned to auth.js — refactoring', 'action');
+  addLog('Atlas', 'Assigned to db.py — query optimization', 'action');
+  addLog('Blade', 'Assigned to test_main.py — coverage expansion', 'action');
+}, 2000);
+
+updateAgentCards();
+updateStats();
+frame();
+</script>
+</body>
+</html>

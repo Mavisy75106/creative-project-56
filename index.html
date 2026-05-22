@@ -1,0 +1,797 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LLM Reading This — Token Attention Network</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#06060e;--surface:#0c0c18;--border:#1a1a2e;
+  --text:#e0e0f0;--text-dim:#6a6a8a;
+  --accent:#7b68ee;--accent2:#00d4aa;--accent3:#ff6b9d;
+  --glow:rgba(123,104,238,0.3);
+}
+html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);font-family:'Plus Jakarta Sans',system-ui,sans-serif}
+canvas{position:fixed;top:0;left:0;width:100%;height:100%;z-index:0}
+
+.ui-layer{position:fixed;top:0;left:0;width:100%;height:100%;z-index:1;pointer-events:none;display:flex;flex-direction:column;justify-content:space-between}
+.ui-layer>*{pointer-events:auto}
+
+.header{padding:24px 32px;display:flex;justify-content:space-between;align-items:flex-start}
+.title-block h1{font-size:clamp(18px,2.5vw,28px);font-weight:700;letter-spacing:-0.02em;color:var(--text)}
+.title-block .subtitle{font-size:clamp(11px,1.2vw,14px);color:var(--text-dim);margin-top:4px;max-width:500px;line-height:1.5}
+.badge{background:var(--border);border:1px solid var(--border);color:var(--text-dim);font-size:11px;padding:4px 10px;border-radius:20px;letter-spacing:0.05em;text-transform:uppercase}
+
+.input-panel{
+  padding:20px 32px 28px;display:flex;flex-direction:column;gap:12px;
+  background:linear-gradient(to top,var(--bg) 60%,transparent);
+}
+.input-wrap{
+  display:flex;gap:8px;max-width:800px;margin:0 auto;width:100%;
+}
+#prompt-input{
+  flex:1;background:var(--surface);border:1px solid var(--border);
+  border-radius:12px;padding:14px 18px;color:var(--text);
+  font-size:15px;font-family:inherit;resize:none;
+  outline:none;transition:border-color 0.3s;
+  min-height:48px;max-height:120px;line-height:1.5;
+}
+#prompt-input:focus{border-color:var(--accent)}
+#prompt-input::placeholder{color:var(--text-dim);font-style:italic}
+#analyze-btn{
+  background:var(--accent);color:#fff;border:none;border-radius:12px;
+  padding:14px 24px;font-size:14px;font-weight:600;cursor:pointer;
+  font-family:inherit;transition:all 0.2s;white-space:nowrap;
+}
+#analyze-btn:hover{background:#6a58d8;transform:translateY(-1px)}
+#analyze-btn:active{transform:translateY(0)}
+
+.controls-row{display:flex;gap:12px;justify-content:center;flex-wrap:wrap;max-width:800px;margin:0 auto}
+.ctrl-btn{
+  background:var(--surface);border:1px solid var(--border);
+  color:var(--text-dim);border-radius:8px;padding:6px 14px;
+  font-size:11px;cursor:pointer;font-family:inherit;
+  transition:all 0.2s;text-transform:uppercase;letter-spacing:0.05em;
+}
+.ctrl-btn:hover,.ctrl-btn.active{border-color:var(--accent);color:var(--accent)}
+
+.info-strip{
+  position:fixed;top:50%;right:28px;transform:translateY(-50%);
+  display:flex;flex-direction:column;gap:16px;z-index:2;
+  font-size:11px;color:var(--text-dim);
+}
+.info-item{text-align:right;line-height:1.6}
+.info-item .val{font-size:20px;font-weight:700;color:var(--text)}
+
+.tweaks{
+  position:fixed;bottom:24px;right:24px;z-index:10;
+}
+.tweaks-toggle{
+  width:36px;height:36px;border-radius:50%;
+  background:var(--surface);border:1px solid var(--border);
+  color:var(--text-dim);cursor:pointer;font-size:16px;
+  display:flex;align-items:center;justify-content:center;
+  transition:all 0.2s;
+}
+.tweaks-toggle:hover{border-color:var(--accent);color:var(--accent)}
+.tweaks-panel{
+  position:absolute;bottom:44px;right:0;width:220px;
+  background:var(--surface);border:1px solid var(--border);
+  border-radius:12px;padding:16px;display:none;
+  box-shadow:0 8px 32px rgba(0,0,0,0.5);
+}
+.tweaks-panel.open{display:block}
+.tweaks-panel h3{font-size:11px;text-transform:uppercase;letter-spacing:0.1em;color:var(--text-dim);margin-bottom:12px}
+.tweak-row{margin-bottom:10px}
+.tweak-row label{font-size:11px;color:var(--text-dim);display:block;margin-bottom:4px}
+.tweak-row input[type=range]{width:100%;accent-color:var(--accent);height:4px}
+.tweak-row select{
+  width:100%;background:var(--bg);border:1px solid var(--border);
+  color:var(--text);border-radius:6px;padding:6px 8px;
+  font-size:11px;font-family:inherit;outline:none;
+}
+
+.tooltip{
+  position:fixed;z-index:20;background:var(--surface);
+  border:1px solid var(--border);border-radius:8px;
+  padding:10px 14px;font-size:12px;color:var(--text);
+  pointer-events:none;opacity:0;transition:opacity 0.15s;
+  max-width:240px;box-shadow:0 4px 20px rgba(0,0,0,0.4);
+}
+.tooltip.show{opacity:1}
+.tooltip .tt-title{font-weight:600;margin-bottom:4px}
+.tooltip .tt-sub{color:var(--text-dim);font-size:11px}
+
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.6}}
+</style>
+</head>
+<body>
+
+<canvas id="c"></canvas>
+
+<div class="ui-layer">
+  <div class="header">
+    <div class="title-block">
+      <h1>LLMs Reading This</h1>
+      <div class="subtitle">Watch an LLM's attention network activate as it processes your text — token by token, layer by layer.</div>
+    </div>
+    <div class="badge">Live Network</div>
+  </div>
+  <div class="input-panel">
+    <div class="input-wrap">
+      <input id="prompt-input" type="text" placeholder="Type text to analyze — e.g. 'The quantum computer entangled two photons across the universe'" autocomplete="off" spellcheck="false">
+      <button id="analyze-btn">Analyze</button>
+    </div>
+    <div class="controls-row">
+      <button class="ctrl-btn active" data-mode="attention">Attention</button>
+      <button class="ctrl-btn" data-mode="flow">Token Flow</button>
+      <button class="ctrl-btn" data-mode="embedding">Embedding</button>
+      <button class="ctrl-btn" data-mode="entropy">Entropy</button>
+    </div>
+  </div>
+</div>
+
+<div class="info-strip" id="info-strip">
+  <div class="info-item"><div class="val" id="token-count">—</div>tokens</div>
+  <div class="info-item"><div class="val" id="active-nodes">—</div>active nodes</div>
+  <div class="info-item"><div class="val" id="attention-pairs">—</div>attention links</div>
+  <div class="info-item"><div class="val" id="confidence">—</div>confidence</div>
+</div>
+
+<div class="tooltip" id="tooltip">
+  <div class="tt-title"></div>
+  <div class="tt-sub"></div>
+</div>
+
+<div class="tweaks">
+  <button class="tweaks-toggle" id="tweaks-btn" title="Tweaks">⚙</button>
+  <div class="tweaks-panel" id="tweaks-panel">
+    <h3>Tweaks</h3>
+    <div class="tweak-row">
+      <label>Animation Speed</label>
+      <input type="range" min="0.2" max="3" step="0.1" value="1" id="speed-slider">
+    </div>
+    <div class="tweak-row">
+      <label>Network Density</label>
+      <input type="range" min="1" max="5" step="1" value="3" id="density-slider">
+    </div>
+    <div class="tweak-row">
+      <label>Color Theme</label>
+      <select id="theme-select">
+        <option value="default">Default (Purple/Teal)</option>
+        <option value="warm">Warm (Gold/Orange)</option>
+        <option value="ocean">Ocean (Blue/Cyan)</option>
+        <option value="matrix">Matrix (Green)</option>
+        <option value="cosmic">Cosmic (Pink/Magenta)</option>
+      </select>
+    </div>
+  </div>
+</div>
+
+<script>
+// ========== SEEDED PRNG ==========
+function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;var t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+
+// ========== THEME COLORS ==========
+const THEMES={
+  default:{primary:'#7b68ee',secondary:'#00d4aa',accent:'#ff6b9d',bg:'#06060e'},
+  warm:{primary:'#f0a500',secondary:'#ff6b35',accent:'#ffd700',bg:'#0e0a06'},
+  ocean:{primary:'#0088cc',secondary:'#00ccdd',accent:'#4488ff',bg:'#06080e'},
+  matrix:{primary:'#00ff41',secondary:'#00aa30',accent:'#00ff88',bg:'#060e06'},
+  cosmic:{primary:'#ff1493',secondary:'#ff69b4',accent:'#da70d6',bg:'#0e060e'}
+};
+let currentTheme='default';
+let animSpeed=1;
+let networkDensity=3;
+let currentMode='attention';
+
+// ========== CANVAS SETUP ==========
+const canvas=document.getElementById('c');
+const ctx=canvas.getContext('2d');
+let W,H,dpr;
+function resize(){
+  dpr=window.devicePixelRatio||1;
+  W=window.innerWidth;H=window.innerHeight;
+  canvas.width=W*dpr;canvas.height=H*dpr;
+  canvas.style.width=W+'px';canvas.style.height=H+'px';
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+}
+window.addEventListener('resize',resize);
+resize();
+
+// ========== TOKEN DATA ==========
+const tokenTypes=['noun','verb','adj','adv','pronoun','prep','conj','det'];
+const tokenColors={
+  noun:{primary:'#7b68ee',secondary:'#5b48ce'},
+  verb:{primary:'#00d4aa',secondary:'#00a888'},
+  adj:{primary:'#ff6b9d',secondary:'#d45080'},
+  adv:{primary:'#ffd700',secondary:'#ccaa00'},
+  pronoun:{primary:'#4488ff',secondary:'#3366cc'},
+  prep:{primary:'#888888',secondary:'#666666'},
+  conj:{primary:'#aa66ff',secondary:'#8844dd'},
+  det:{primary:'#66aacc',secondary:'#448899'}
+};
+
+// Simple part-of-speech tagging (heuristic)
+function tagTokens(text){
+  const nouns=new Set(['computer','photon','universe','atom','energy','world','code','data','network','light','space','time','mind','thought','word','signal','frequency','gravity','star','planet','ocean','mountain','river','city','person','system','process','function','model','agent','layer','memory','pattern','structure','matrix','quantum','particle','wave','field','force','mass','charge','spin','orbit','beam','sound','color','shape','form','truth','logic','number','sequence','series','vector','matrix','tensor','graph','tree','node','edge','path','chain','loop','cycle','wave','pulse','spark','fire','storm','cloud','rain','snow','wind','leaf','flower','stone','metal','glass','paper','screen','pixel','grid','cell','frame','layer','web','mesh','fabric','thread','line','dot','point','corner','space','void','void','depth','height','width','angle','curve','arc','ring','circle','square','triangle','diamond','hexagon','star','plane','sphere','cube','prism','pyramid','cylinder','torus','helix','spiral','ladder','bridge','door','wall','floor','roof','ceiling','pillar','column','arch','window','frame','board','chart','map','key','lock','door','gate','path','road','track','trail','sign','mark','dot','point','line','curve','wave','pulse','beam','ray','light','dark','shadow','glow','glare','shine','sparkle','shimmer','twinkle','flash','blaze','burn','heat','warm','cool','cold','hot','frost','ice','water','fire','earth','air','wind','sky','storm','rain','cloud','sun','moon','star','galaxy','nebula','comet','meteor','planet','orbit','ring','belt','zone','field','boundary','edge','border','limit','end','begin','start','finish','close','open','break','fix','make','build','create','form','shape','grow','change','move','turn','flow','run','walk','fly','swim','crawl','climb','drop','fall','rise','lift','push','pull','throw','catch','hold','keep','take','give','show','tell','speak','think','know','feel','see','hear','look','find','search','read','write','draw','paint','sing','play','dance','jump','sit','stand','lie','sleep','dream','wake','live','die','love','like','want','need','try','begin','stop','wait','leave','come','go','send','receive','build','create','make','design','plan','write','run','test','deploy','ship','launch','open','source','code','data','model','train','learn','predict','generate','classify','cluster','rank','score','match','link','connect','merge','split','filter','sort','search','find','track','monitor','measure','count','sum','mean','max','min','avg','median','mode','variance','deviation','error','loss','grad','step','epoch','batch','weight','bias','node','layer','net','graph','tree','map','key','val','map','set','list','queue','stack','heap','trie','path','node','link','edge','flow','rate','rate','rate']);
+  const verbs=new Set(['is','are','was','were','be','been','being','have','has','had','having','do','does','did','doing','will','would','could','should','may','might','shall','can','need','must','run','build','create','make','design','plan','train','learn','predict','generate','classify','cluster','rank','score','match','link','connect','merge','split','filter','sort','search','find','track','monitor','measure','count','sum','max','min','avg','flow','run','test','deploy','ship','launch','open','source','walk','fly','swim','crawl','climb','drop','fall','rise','lift','push','pull','throw','catch','hold','keep','take','give','show','tell','speak','think','know','feel','see','hear','look','find','read','write','draw','paint','sing','play','dance','jump','sit','stand','lie','sleep','dream','wake','live','love','like','want','need','try','stop','wait','leave','come','go','send','receive','change','move','turn','grow','form','shape','break','fix','fix','fix']);
+  const adjs=new Set(['big','small','large','small','fast','slow','new','old','good','bad','great','poor','high','low','long','short','deep','shallow','hard','soft','bright','dim','warm','cool','hot','cold','dark','light','heavy','thin','thick','thick','wide','narrow','strong','weak','rich','poor','rich','rich','rich','true','false','real','virtual','digital','analog','open','closed','free','public','private','local','global','static','dynamic','fixed','mutable','safe','unsafe','secure','public','private','fast','slow','quick','rapid','instant','delayed','early','late','first','last','next','previous','current','past','future','present','single','multiple','parallel','serial','linear','nonlinear','simple','complex','basic','advanced','raw','processed','hidden','visible','active','inactive','valid','invalid','clean','dirty','fresh','stale','live','dead','born','frozen','melted','solid','liquid','gas','plasma','electric','magnetic','optical','thermal','acoustic','mechanical','chemical','nuclear','quantum','classical','relativistic','spatial','temporal','spatial','temporal','infinite','finite','discrete','continuous','periodic','aperiodic','random','deterministic','probabilistic','stochastic','chaotic','ordered','disordered','symmetric','asymmetric','homogeneous','heterogeneous','isotropic','anisotropic','convex','concave','smooth','rough','flat','curved','straight','bent','twisted','coiled','spiraled','folded','unfolded','rotated','reflected','translated','scaled','projected','mapped','transformed','generated','rendered','displayed','captured','recorded','played','paused','stopped','resumed','repeated','cancelled','confirmed','pending','queued','scheduled','executed','compiled','linked','loaded','saved','loaded','cached','pruned','expanded','compressed','decompressed','encrypted','decrypted','signed','verified','signed','authenticated','authorized','synchronized','asynchronous','synchronous','parallel','distributed','decentralized','centralized','virtual','physical','logical','abstract','concrete','implicit','explicit','native','foreign','internal','external','outer','inner','mid','front','back','left','right','top','bottom','near','far','above','below','inside','outside','under','over','across','through','along','around','between','among','within','without','beyond','toward','away','upward','downward','sideways','forward','backward']);
+  const adverbs=new Set(['quickly','slowly','fast','gently','hard','softly','brightly','dimly','warmly','coolly','hotly','coldly','deeply','lightly','heavily','thinly','thickly','widely','narrowly','strongly','weakly','richly','poorly','truly','really','virtually','digitally','analogously','globally','locally','statically','dynamically','fixedly','mutably','safely','securely','openly','privately','rapidly','instantly','delayedly','early','late','first','last','next','previously','currently','historically','future','presently','singly','mutually','independently','dependently','serially','linearly','simply','complexly','basically','advancedly','rawly','processed','hiddenly','actively','validly','cleanly','freshly','live','frozen','melted','solidly','liquidly','electrically','magnetically','optically','thermally','acoustically','mechanically','chemically','nucleously','quantum mechanically','spatially','temporally','infinitely','finitely','discretely','continuously','periodically','randomly','deterministically','probabilistically','chaotically','orderedly','symmetrically','asymmetrically','homogeneously','heterogeneously','isotropically','anisotropically','smoothly','roughly','flatly','curvedly','straightly','bendingly','twistingly','coiledly','spirally','foldedly','rotatedly','reflectedly','translatedly','scaledly','projectedly','mappedly','transformedly','generatedly','renderedly','displayedly','capturedly','recordedly','played','pausedly','stoppedly','repeatedly','cancelledly','confirmedly','pendingly','queuedly','scheduledly','executedly','compiledly','linkedly','loadedly','savedly','cachedly','prunedly','expandedly','compressedly','decompressedly','encryptedly','decryptedly','signedly','verifiedly','authenticatedly','authorizedly','synchronizedly','asynchronously','synchronously','parallely','distributedly','decentralizedly','centralizedly','virtually','physically','logically','abstractly','concretely','implicitly','explicitly','natively','foreignly','internally','externally','outerly','innerly','midly','frontly','backly','leftly','rightly','toply','bottomly','nearly','farly','abovely','belowly','insidely','outsidely','underly','overly','acrossly','throughly','alongly','aroundly','betweenly','amongly','withinly','withoutly','beyondly','towardly','awayly','upwardly','downwardly','sidewaysly','forwardly','backwardly']);
+  const prepositions=new Set('in on at by for with from about into upon onto through during before after between among within without beyond throughout around near across along beside beneath behind below contrary despite except excluding following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following following'.split(' '));
+  
+  const words=text.toLowerCase().split(/\s+/).filter(w=>w.length>0);
+  return words.map(w=>{
+    const clean=w.replace(/[^a-z]/g,'');
+    if(!clean)return{word:w,type:'det',weight:0.5};
+    if(nouns.has(clean))return{word:w,type:'noun',weight:0.9+Math.random()*0.1};
+    if(verbs.has(clean))return{word:w,type:'verb',weight:0.8+Math.random()*0.2};
+    if(adjs.has(clean))return{word:w,type:'adj',weight:0.7+Math.random()*0.2};
+    if(adverbs.has(clean))return{word:w,type:'adv',weight:0.6+Math.random()*0.2};
+    if(prepositions.has(clean))return{word:w,type:'prep',weight:0.5+Math.random()*0.15};
+    if(w.match(/^(the|a|an|this|that|these|those|my|your|his|her|its|our|their|some|any|all|each|every|both|few|more|most|other|such|only)$/))return{word:w,type:'det',weight:0.3+Math.random()*0.2};
+    if(w.match(/^(to|from|in|on|at|by|for|with|about|into|through|during|before|after|between|among|within|without|against|behind|under|above|below|across|along|near|around)$/))return{word:w,type:'prep',weight:0.4+Math.random()*0.15};
+    // Default: heuristic guess
+    const r=mulberry32(clean.split('').reduce((s,c)=>s+c.charCodeAt(0),0));
+    if(r<0.35)return{word:w,type:'noun',weight:0.4+Math.random()*0.3};
+    if(r<0.5)return{word:w,type:'verb',weight:0.4+Math.random()*0.3};
+    if(r<0.65)return{word:w,type:'adj',weight:0.4+Math.random()*0.3};
+    return{word:w,type:tokenTypes[Math.floor(r*tokenTypes.length)],weight:0.3+Math.random()*0.4};
+  });
+}
+
+// ========== NETWORK GRAPH ==========
+let tokens=[];
+let edges=[];
+let particles=[];
+let activeTokenCount=0;
+let activeEdgeCount=0;
+let confidenceScore=0;
+let transitionProgress=1;
+let targetTransition=1;
+let prevTokens=[];
+let targetTokens=[];
+
+const theme=THEMES[currentTheme];
+
+class TokenNode{
+  constructor(x,y,token,type,weight){
+    this.x=x;this.y=y;
+    this.baseX=x;this.baseY=y;
+    this.token=token;
+    this.type=type;
+    this.weight=weight;
+    this.active=false;
+    this.activation=0;
+    this.targetActivation=0;
+    this.pulsePhase=Math.random()*Math.PI*2;
+    this.pulseSpeed=0.5+Math.random()*0.5;
+    this.radius=6;
+    this.angle=0;
+    this.orbitRadius=0;
+    this.orbitSpeed=0;
+    this.entropy=0;
+    this.embedAngle=Math.random()*Math.PI*2;
+    this.embedRadius=0;
+    this.targetEmbedAngle=0;
+    this.targetEmbedRadius=0;
+  }
+}
+
+class AttentionEdge{
+  constructor(a,b,weight){
+    this.a=a;this.b=b;
+    this.weight=weight;
+    this.active=false;
+    this.activation=0;
+    this.targetActivation=0;
+    this.flowProgress=0;
+    this.flowSpeed=0;
+  }
+}
+
+class FlowParticle{
+  constructor(edge){
+    this.edge=edge;
+    this.progress=0;
+    this.speed=0.005+Math.random()*0.005;
+    this.size=2+Math.random()*2;
+  }
+}
+
+function generateNetwork(text){
+  const tagged=tagTokens(text);
+  tokens=[];
+  edges=[];
+  particles=[];
+  activeTokenCount=0;
+  activeEdgeCount=0;
+  confidenceScore=0;
+  
+  const cx=W/2;
+  const cy=H/2;
+  const spread=Math.min(W,H)*0.35;
+  const densityFactor=networkDensity/3;
+  
+  // Arrange tokens in a circular-ish layout
+  const n=tagged.length;
+  if(n===0)return;
+  
+  const radius=Math.min(spread,n*15);
+  const angleStep=(Math.PI*2)/n;
+  
+  tagged.forEach((t,i)=>{
+    const a=i*angleStep;
+    const r=radius*(0.6+0.4*Math.random()*densityFactor);
+    const x=cx+Math.cos(a)*r;
+    const y=cy+Math.sin(a)*r;
+    const node=new TokenNode(x,y,t,t.type,t.weight);
+    node.targetEmbedAngle=a;
+    node.targetEmbedRadius=r;
+    tokens.push(node);
+  });
+  
+  // Generate attention edges (dense based on density setting)
+  const maxEdges=Math.floor(n*n*0.08*densityFactor);
+  const seeded=mulberry32(text.split('').reduce((s,c)=>s+c.charCodeAt(0),0)+1);
+  
+  for(let i=0;i<n;i++){
+    const numEdges=1+Math.floor(seeded()*(3*densityFactor));
+    for(let j=0;j<numEdges;j++){
+      let target=i+1+Math.floor(seeded()*(n-i-1));
+      if(target>=n)target=i;
+      if(target===i)continue;
+      const exists=edges.find(e=>(e.a===i&&e.b===target)||(e.a===target&&e.b===i));
+      if(exists)continue;
+      const weight=0.1+seeded()*0.9;
+      edges.push(new AttentionEdge(i,target,weight));
+    }
+  }
+  
+  // Limit edges for clarity
+  edges.sort((a,b)=>b.weight-a.weight);
+  edges=edges.slice(0,maxEdges);
+  
+  // Count active (strong) attention
+  activeTokenCount=Math.floor(n*0.3+seeded()*n*0.4);
+  activeEdgeCount=Math.floor(edges.length*0.15+seeded()*edges.length*0.25);
+  confidenceScore=0.7+seeded()*0.25;
+}
+
+function initParticles(){
+  particles=[];
+  const seeded=mulberry32(Date.now());
+  edges.forEach(e=>{
+    if(seeded()<0.3){
+      particles.push(new FlowParticle(e));
+    }
+  });
+}
+
+function smoothstep(t){return t*t*(3-2*t)}
+
+function updateTokens(dt){
+  const spd=animSpeed*dt*0.001;
+  tokens.forEach((t,i)=>{
+    // Activation animation
+    if(t.active){
+      t.activation=Math.min(1,t.activation+spd*3);
+    }else{
+      t.activation=Math.max(0,t.activation-spd*2);
+    }
+    
+    // Pulse
+    t.pulsePhase+=spd*2*t.pulseSpeed;
+    
+    // Gentle orbital drift when active
+    if(t.active&&t.activation>0.5){
+      t.angle+=spd*0.3*t.pulseSpeed;
+      const drift=Math.sin(t.pulsePhase)*3*animSpeed;
+      t.x=t.baseX+Math.cos(t.angle)*drift;
+      t.y=t.baseY+Math.sin(t.pulsePhase)*drift*0.5;
+    }else{
+      t.angle=t.angle*0.99;
+      t.x+=(t.baseX-t.x)*0.05;
+      t.y+=(t.baseY-t.y)*0.05;
+    }
+    
+    // Embedding mode: orbit visualization
+    if(currentMode==='embedding'){
+      const embedT=smoothstep(t.activation);
+      const er=t.targetEmbedRadius*embedT;
+      const ea=t.targetEmbedAngle+embedT*0.3;
+      t.x=t.baseX+(Math.cos(ea)*er*(t.baseX<t.targetEmbedRadius?1:-1))*embedT;
+      t.y=t.baseY+(Math.sin(ea)*er*(t.baseY<t.targetEmbedRadius?1:-1))*embedT;
+    }
+  });
+  
+  // Count active
+  let actTokens=0,actEdges=0;
+  tokens.forEach(t=>{if(t.active&&t.activation>0.3)actTokens++});
+  edges.forEach(e=>{
+    if(tokens[e.a]&&tokens[e.b]&&tokens[e.a].active&&tokens[e.b].active){
+      actEdges++;
+    }
+  });
+  activeTokenCount=actTokens;
+  activeEdgeCount=actEdges;
+}
+
+function updateEdges(dt){
+  const spd=animSpeed*dt*0.001;
+  const maxActive=Math.floor(edges.length*0.4);
+  let activated=0;
+  
+  edges.forEach(e=>{
+    const aActive=tokens[e.a]?tokens[e.a].active:false;
+    const bActive=tokens[e.b]?tokens[e.b].active:false;
+    const canActive=aActive&&bActive;
+    
+    e.targetActivation=canActive?(0.3+e.weight*0.7):0;
+    if(e.targetActivation>0.1){
+      e.activation=Math.min(1,e.activation+spd*2);
+      activated++;
+    }else{
+      e.activation=Math.max(0,e.activation-spd*3);
+    }
+    
+    // Flow particles
+    if(e.targetActivation>0.2){
+      particles.forEach(p=>{
+        if(p.edge===e){
+          p.progress+=p.speed*animSpeed;
+          if(p.progress>1)p.progress-=1;
+        }
+      });
+    }
+  });
+  
+  activeEdgeCount=Math.floor(activated);
+}
+
+function updateParticles(dt){
+  particles.forEach(p=>{
+    if(p.edge.targetActivation>0.1){
+      p.progress+=p.speed*animSpeed*dt*0.001*60;
+      if(p.progress>1)p.progress-=1;
+    }
+  });
+}
+
+// ========== RENDERING ==========
+function drawBackground(){
+  // Subtle grid
+  const gridSize=40;
+  ctx.strokeStyle='rgba(255,255,255,0.02)';
+  ctx.lineWidth=0.5;
+  for(let x=0;x<W;x+=gridSize){
+    ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,H);ctx.stroke();
+  }
+  for(let y=0;y<H;y+=gridSize){
+    ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(W,y);ctx.stroke();
+  }
+  
+  // Vignette
+  const vg=ctx.createRadialGradient(W/2,H/2,W*0.2,W/2,H/2,W*0.7);
+  vg.addColorStop(0,'rgba(0,0,0,0)');
+  vg.addColorStop(1,'rgba(0,0,0,0.5)');
+  ctx.fillStyle=vg;
+  ctx.fillRect(0,0,W,H);
+}
+
+function drawEdges(){
+  const c=THEMES[currentTheme];
+  edges.forEach(e=>{
+    if(!tokens[e.a]||!tokens[e.b])return;
+    const act=e.activation;
+    if(act<0.01)return;
+    
+    const a=tokens[e.a],b=tokens[e.b];
+    const alpha=act*0.6;
+    const width=act*e.weight*2.5;
+    
+    // Draw edge line
+    ctx.beginPath();
+    ctx.moveTo(a.x,a.y);
+    ctx.lineTo(b.x,b.y);
+    ctx.strokeStyle=`rgba(123,104,238,${alpha})`;
+    ctx.lineWidth=width;
+    ctx.stroke();
+    
+    // Glow
+    if(act>0.5){
+      ctx.beginPath();
+      ctx.moveTo(a.x,a.y);
+      ctx.lineTo(b.x,b.y);
+      ctx.strokeStyle=`rgba(123,104,238,${alpha*0.3})`;
+      ctx.lineWidth=width+4;
+      ctx.stroke();
+    }
+  });
+  
+  // Draw flow particles
+  particles.forEach(p=>{
+    if(p.edge.targetActivation<=0.1)return;
+    const a=tokens[p.edge.a],b=tokens[p.edge.b];
+    if(!a||!b)return;
+    const t=p.progress;
+    const x=a.x+(b.x-a.x)*t;
+    const y=a.y+(b.y-a.y)*t;
+    const alpha=0.8*(1-Math.abs(t-0.5)*2);
+    
+    ctx.beginPath();
+    ctx.arc(x,y,p.size,0,Math.PI*2);
+    ctx.fillStyle=`rgba(0,212,170,${alpha})`;
+    ctx.fill();
+    
+    // Glow
+    ctx.beginPath();
+    ctx.arc(x,y,p.size*3,0,Math.PI*2);
+    ctx.fillStyle=`rgba(0,212,170,${alpha*0.15})`;
+    ctx.fill();
+  });
+}
+
+function drawTokens(){
+  const c=THEMES[currentTheme];
+  const now=performance.now()*0.001;
+  
+  tokens.forEach((t,i)=>{
+    const act=t.activation;
+    if(act<0.01)return;
+    
+    const color=tokenColors[t.type]?tokenColors[t.type].primary:c.primary;
+    const r=t.radius*(0.8+act*0.4)+Math.sin(t.pulsePhase)*2*act;
+    
+    // Outer glow
+    const glow=ctx.createRadialGradient(t.x,t.y,0,t.x,t.y,r*3);
+    glow.addColorStop(0,color+'44');
+    glow.addColorStop(1,color+'00');
+    ctx.beginPath();
+    ctx.arc(t.x,t.y,r*3,0,Math.PI*2);
+    ctx.fillStyle=glow;
+    ctx.fill();
+    
+    // Main token circle
+    ctx.beginPath();
+    ctx.arc(t.x,t.y,r,0,Math.PI*2);
+    
+    // Mode-specific rendering
+    if(currentMode==='entropy'){
+      const entropyColor=act<0.3?'#00d4aa':act<0.7?'#ffd700':'#ff6b9d';
+      ctx.fillStyle=entropyColor;
+    }else if(currentMode==='attention'){
+      ctx.fillStyle=color;
+    }else if(currentMode==='flow'){
+      const t2=(now+i*0.1)%2;
+      const blend=smoothstep(t2);
+      ctx.fillStyle=`rgba(123,104,238,${0.3+act*0.7})`;
+    }else if(currentMode==='embedding'){
+      ctx.fillStyle=`rgba(0,212,170,${0.3+act*0.7})`;
+    }else{
+      ctx.fillStyle=color;
+    }
+    ctx.fill();
+    
+    // Inner highlight
+    ctx.beginPath();
+    ctx.arc(t.x-r*0.3,t.y-r*0.3,r*0.3,0,Math.PI*2);
+    ctx.fillStyle='rgba(255,255,255,0.15)';
+    ctx.fill();
+    
+    // Token label (only show for activated tokens)
+    if(act>0.5){
+      const fontSize=Math.max(9,Math.min(12,r*0.8));
+      ctx.font=`600 ${fontSize}px 'Plus Jakarta Sans',system-ui,sans-serif`;
+      ctx.textAlign='center';
+      ctx.textBaseline='middle';
+      ctx.fillStyle=`rgba(255,255,255,${act*0.9})`;
+      
+      const label=t.token.replace(/[^a-zA-Z0-9]/g,'');
+      if(label.length>0){
+        ctx.fillText(label,t.x,t.y);
+      }
+    }
+  });
+}
+
+function drawCenterInfo(){
+  const c=THEMES[currentTheme];
+  const cx=W/2;
+  const cy=H/2;
+  
+  // Central hub when active
+  if(activeTokenCount>0){
+    const hubR=30+activeTokenCount*0.3;
+    const pulse=Math.sin(performance.now()*0.001)*5;
+    
+    // Hub glow
+    const hg=ctx.createRadialGradient(cx,cy,hubR*0.5,cx,cy,hubR*3);
+    hg.addColorStop(0,c.primary+'30');
+    hg.addColorStop(1,c.primary+'00');
+    ctx.beginPath();
+    ctx.arc(cx,cy,hubR*3,0,Math.PI*2);
+    ctx.fillStyle=hg;
+    ctx.fill();
+    
+    // Hub ring
+    ctx.beginPath();
+    ctx.arc(cx,cy,hubR+pulse,0,Math.PI*2);
+    ctx.strokeStyle=c.primary+'66';
+    ctx.lineWidth=2;
+    ctx.stroke();
+    
+    // Hub label
+    ctx.font='700 11px "Plus Jakarta Sans",system-ui,sans-serif';
+    ctx.textAlign='center';
+    ctx.textBaseline='middle';
+    ctx.fillStyle=c.primary;
+    ctx.fillText('NEURAL',cx,cy-7);
+    ctx.fillText('CORTEX',cx,cy+7);
+  }
+}
+
+function drawModeOverlay(){
+  if(currentMode==='entropy'){
+    ctx.font='600 11px "Plus Jakarta Sans",system-ui,sans-serif';
+    ctx.textAlign='center';
+    ctx.fillStyle='rgba(255,255,255,0.08)';
+    ctx.fillText('HIGH ENTROPY',W/2,H-100);
+  }
+}
+
+// ========== MAIN LOOP ==========
+let lastTime=performance.now();
+function frame(now){
+  const dt=now-lastTime;
+  lastTime=now;
+  
+  // Clear
+  ctx.fillStyle=THEMES[currentTheme].bg;
+  ctx.fillRect(0,0,W,H);
+  
+  drawBackground();
+  drawEdges();
+  drawCenterInfo();
+  drawTokens();
+  drawModeOverlay();
+  
+  // Update
+  updateTokens(dt);
+  updateEdges(dt);
+  updateParticles(dt);
+  
+  // Update info display
+  document.getElementById('token-count').textContent=tokens.length;
+  document.getElementById('active-nodes').textContent=activeTokenCount;
+  document.getElementById('attention-pairs').textContent=activeEdgeCount;
+  document.getElementById('confidence').textContent=confidenceScore>0?confidenceScore.toFixed(2):'—';
+  
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+// ========== INTERACTION ==========
+function analyzeText(text){
+  if(!text.trim())return;
+  targetTokens=taggedTokens;
+  
+  // Transition
+  prevTokens=tokens;
+  generateNetwork(text);
+  initParticles();
+  
+  // Activate tokens gradually
+  tokens.forEach((t,i)=>{
+    t.active=false;
+    t.activation=0;
+  });
+  
+  // Activate tokens in waves
+  const activeIndices=[];
+  const seeded=mulberry32(text.split('').reduce((s,c)=>s+c.charCodeAt(0),0)+42);
+  const count=activeTokenCount;
+  const used=new Set();
+  while(used.size<count&&used.size<tokens.length){
+    const idx=Math.floor(seeded()*tokens.length);
+    if(!used.has(idx)){
+      used.add(idx);
+      activeIndices.push(idx);
+    }
+  }
+  
+  // Wave activation
+  activeIndices.forEach((idx,i)=>{
+    const delay=i*80/animSpeed;
+    setTimeout(()=>{
+      if(tokens[idx]){
+        tokens[idx].active=true;
+        tokens[idx].targetActivation=1;
+      }
+    },delay);
+  });
+}
+
+// Event listeners
+document.getElementById('analyze-btn').addEventListener('click',()=>{
+  analyzeText(document.getElementById('prompt-input').value);
+});
+
+document.getElementById('prompt-input').addEventListener('keydown',(e)=>{
+  if(e.key==='Enter'&&!e.shiftKey){
+    e.preventDefault();
+    analyzeText(document.getElementById('prompt-input").value);
+  }
+});
+
+// Mode switching
+document.querySelectorAll('.ctrl-btn[data-mode]').forEach(btn=>{
+  btn.addEventListener('click',()=>{
+    document.querySelectorAll('.ctrl-btn').forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');
+    currentMode=btn.dataset.mode;
+  });
+});
+
+// Tweaks
+const tweaksBtn=document.getElementById('tweaks-btn');
+const tweaksPanel=document.getElementById('tweaks-panel');
+tweaksBtn.addEventListener('click',()=>{
+  tweaksPanel.classList.toggle('open');
+});
+
+document.getElementById('speed-slider').addEventListener('input',(e)=>{
+  animSpeed=parseFloat(e.target.value);
+});
+
+document.getElementById('density-slider').addEventListener('input',(e)=>{
+  networkDensity=parseInt(e.target.value);
+});
+
+document.getElementById('theme-select').addEventListener('change',(e)=>{
+  currentTheme=e.target.value;
+});
+
+// ========== HOVER / TOOLTIP ==========
+const tooltip=document.getElementById('tooltip');
+canvas.addEventListener('mousemove',(e)=>{
+  const mx=e.clientX;
+  const my=e.clientY;
+  
+  // Check if hovering over a token
+  let hovered=null;
+  tokens.forEach((t)=>{
+    const dx=t.x-mx;
+    const dy=t.y-my;
+    const dist=Math.sqrt(dx*dx+dy*dy);
+    if(dist<t.radius*4&&t.activation>0.3){
+      hovered=t;
+    }
+  });
+  
+  if(hovered){
+    tooltip.querySelector('.tt-title').textContent=hovered.token;
+    tooltip.querySelector('.tt-sub').textContent=`${hovered.type} · weight: ${hovered.weight.toFixed(2)}`;
+    tooltip.style.left=(mx+16)+'px';
+    tooltip.style.top=(my-10)+'px';
+    tooltip.classList.add('show');
+    canvas.style.cursor='pointer';
+  }else{
+    tooltip.classList.remove('show');
+    canvas.style.cursor='default';
+  }
+});
+
+canvas.addEventListener('mouseleave',()=>{
+  tooltip.classList.remove('show');
+  canvas.style.cursor='default';
+});
+
+// ========== DEMO: Auto-analyze on load ==========
+setTimeout(()=>{
+  analyzeText('The quantum computer entangled two photons across the universe');
+},500);
+</script>
+</body>
+</html>
